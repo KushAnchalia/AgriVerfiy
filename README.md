@@ -4,10 +4,12 @@ AgriVerify, where you'll blend blockchain technology with organic farming to bri
 
 Imagine walking through a market, scanning a QR code on an apple, and instantly seeing its certification, the farm it came from, and the people behind it—all with the power of blockchain!
 
-To Run the code Install all the dependecies 
+To Run the code Install all the dependecies :
+
 Command -> npm i 
 
-To run the frontend code 
+To run the frontend code :
+
 Command -> npm serve frontend 
 
 Tools : Hardhat ,web3.js , Ethernet ,Solidity 
