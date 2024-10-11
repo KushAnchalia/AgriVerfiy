@@ -15,4 +15,8 @@ Command -> npx serve frontend
 Tools : Hardhat ,web3.js , Ethernet ,Solidity 
 Contract Deployed at : 0x5d2d210D820519e39EC1Da5Cf4399504890B5c40
 
+NFT Mint Tools : Pinata API Key and JWT .
+
 This is a test Project . 
+
+![image](https://github.com/user-attachments/assets/967f5f5a-6da0-4266-83ed-9f93a0b44f93)
