@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AgriVerify</title>
+    <link rel="stylesheet" href="styles.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/web3/1.6.1/web3.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script> <!-- Axios for HTTP requests -->
+</head>
+<body>
+    <div class="container">
+        <h1>AgriVerify</h1>
+
+        <div id="accountContainer">
+            <strong>Connected Account: </strong>
+            <span id="connectedAccount">Not connected</span>
+        </div>
+
+        <div class="form">
+            <input type="text" id="cropName" placeholder="Enter Crop Name">
+            <input type="text" id="farmDetails" placeholder="Enter Farm Details">
+            <button id="certifyButton">Certify Crop & Mint NFT</button>
+        </div>
+
+        <div id="pastCertifications">
+            <h3 id="noCertificationsHeader">Your Certified Crops</h3>
+            <ul id="certifiedCropsList"></ul>
+        </div>
+
+        <div id="qrCodeContainer"></div>
+    </div>
+
+    <script>
+        const contractAddress = "0x5d2d210D820519e39EC1Da5Cf4399504890B5c40"; // Your contract address
+        const abi = [
+            {
+                "inputs": [
+                    { "internalType": "string", "name": "_cropName", "type": "string" },
+                    { "internalType": "string", "name": "_farmDetails", "type": "string" }
+                ],
+                "name": "certifyCrop",
+                "outputs": [],
+                "stateMutability": "nonpayable",
+                "type": "function"
+            },
+            {
+                "inputs": [
+                    { "internalType": "address", "name": "farmer", "type": "address" }
+                ],
+                "name": "getCertificationStatus",
+                "outputs": [
+                    { "internalType": "string", "name": "", "type": "string" },
+                    { "internalType": "string", "name": "", "type": "string" },
+                    { "internalType": "bool", "name": "", "type": "bool" }
+                ],
+                "stateMutability": "view",
+                "type": "function"
+            },
+            {
+                "inputs": [
+                    { "internalType": "string", "name": "_ipfsHash", "type": "string" }
+                ],
+                "name": "mintNFT",
+                "outputs": [],
+                "stateMutability": "nonpayable",
+                "type": "function"
+            }
+        ];
+
+        // Pinata API keys
+        const pinataApiKey = "b4c4541efdc90628044b"; // Replace with your actual Pinata API key
+        const pinataSecretApiKey = "d2079d8ee6e3df1075e159df1ea762e94dd70ef0c1d46fe03831af0d0cdd24c7"; // Replace with your actual Pinata secret key
+
+        // Function to connect wallet (MetaMask)
+        async function connectWallet() {
+            if (typeof window.ethereum !== 'undefined') {
+                try {
+                    const accounts = await ethereum.request({ method: 'eth_requestAccounts' });
+                    const account = accounts[0];
+                    document.getElementById('connectedAccount').textContent = account;
+                    return account;
+                } catch (error) {
+                    console.error("Error connecting to wallet", error);
+                }
+            } else {
+                alert('MetaMask is not installed. Please install MetaMask and try again.');
+            }
+        }
+
+        // Function to certify crop on blockchain and mint NFT
+        async function certifyAndMintNFT() {
+            const cropName = document.getElementById('cropName').value;
+            const farmDetails = document.getElementById('farmDetails').value;
+
+            if (!cropName || !farmDetails) {
+                alert('Please fill in both fields!');
+                return;
+            }
+
+            if (typeof window.ethereum === 'undefined') {
+                alert('Please install MetaMask or another Ethereum wallet.');
+                return;
+            }
+
+            try {
+                const web3 = new Web3(window.ethereum);
+                const account = await web3.eth.getAccounts();
+                const contract = new web3.eth.Contract(abi, contractAddress);
+
+                const transaction = await contract.methods.certifyCrop(cropName, farmDetails)
+                    .send({ from: account[0] });
+
+                console.log('Transaction successful:', transaction);
+                alert('Crop certified successfully!');
+
+                // Generate QR code
+                const transactionHash = transaction.transactionHash;
+                const qrData = `Crop: ${cropName}\nFarm: ${farmDetails}\nFarmer: ${account[0]}\nTransaction Hash: ${transactionHash}`;
+                const qrCodeDataUrl = await generateQRCode(qrData);
+
+                // Upload QR code to IPFS and mint NFT
+                await uploadQRToPinataAndMintNFT(qrCodeDataUrl, cropName, account[0]);
+
+                // Fetch updated certification status
+                await getPastCertifications(account[0]);
+            } catch (error) {
+                console.error('Error certifying crop:', error);
+            }
+        }
+
+        // Function to upload QR code to Pinata and mint NFT
+        async function uploadQRToPinataAndMintNFT(qrCodeDataUrl, cropName, farmerAddress) {
+            try {
+                const metadata = {
+                    name: cropName,
+                    description: "NFT for crop certification",
+                    image: qrCodeDataUrl
+                };
+
+                // Convert the metadata to a JSON Blob for upload
+                const jsonBlob = new Blob([JSON.stringify(metadata)], { type: "application/json" });
+
+                const formData = new FormData();
+                formData.append("file", jsonBlob);
+
+                const response = await axios.post("https://api.pinata.cloud/pinning/pinFileToIPFS", formData, {
+                    headers: {
+                        pinata_api_key: pinataApiKey,
+                        pinata_secret_api_key: pinataSecretApiKey
+                    }
+                });
+
+                const ipfsHash = response.data.IpfsHash;
+                console.log('Uploaded to IPFS:', ipfsHash);
+                alert('NFT minted successfully with IPFS hash: ' + ipfsHash);
+
+                // Mint NFT on blockchain using the IPFS hash
+                await mintNFT(ipfsHash, farmerAddress);
+            } catch (error) {
+                console.error('Error uploading QR code to Pinata:', error);
+            }
+        }
+
+        // Function to mint NFT
+        async function mintNFT(ipfsHash, farmerAddress) {
+            try {
+                const web3 = new Web3(window.ethereum);
+                const contract = new web3.eth.Contract(abi, contractAddress);
+                const account = await web3.eth.getAccounts();
+
+                const transaction = await contract.methods.mintNFT(ipfsHash)
+                    .send({ from: account[0] });
+
+                console.log('NFT Minted:', transaction);
+                alert('NFT Minted with IPFS hash: ' + ipfsHash);
+            } catch (error) {
+                console.error('Error minting NFT:', error);
+            }
+        }
+
+        // Function to generate QR code
+        async function generateQRCode(data) {
+            const qrCodeContainer = document.getElementById('qrCodeContainer');
+            qrCodeContainer.innerHTML = ""; // Clear previous QR code if any
+
+            return new Promise((resolve, reject) => {
+                const qrCode = new QRCode(qrCodeContainer, {
+                    text: data,
+                    width: 128,
+                    height: 128
+                });
+
+                // Wait for the QR code to be generated and return its data URL
+                setTimeout(() => {
+                    const canvas = qrCodeContainer.querySelector("canvas");
+                    if (canvas) {
+                        resolve(canvas.toDataURL("image/png"));
+                    } else {
+                        reject("Error generating QR code");
+                    }
+                }, 500);
+            });
+        }
+
+        // Function to fetch past certifications for the connected account
+        async function getPastCertifications(account) {
+            try {
+                const web3 = new Web3(window.ethereum);
+                const contract = new web3.eth.Contract(abi, contractAddress);
+
+                const result = await contract.methods.getCertificationStatus(account).call();
+
+                const [cropName, farmDetails, isCertified] = result;
+                const certifiedCropsList = document.getElementById('certifiedCropsList');
+                const header = document.getElementById('noCertificationsHeader');
+
+                certifiedCropsList.innerHTML = ""; // Clear previous list
+
+                if (isCertified) {
+                    const li = document.createElement('li');
+                    li.textContent = `Crop: ${cropName}, Farm: ${farmDetails}`;
+                    certifiedCropsList.appendChild(li);
+                    header.textContent = 'Your Certified Crops:';
+                } else {
+                    header.textContent = 'You have no certified crops yet.';
+                }
+            } catch (error) {
+                console.error('Error fetching certification status:', error);
+            }
+        }
+
+        // Event listener for certify button
+        document.getElementById('certifyButton').addEventListener('click', async () => {
+            const account = await connectWallet();
+            if (account) {
+                await certifyAndMintNFT();
+            }
+        });
+    </script>
+</body>
+</html>
